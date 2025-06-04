@@ -7,85 +7,121 @@ const router = express.Router();
 router.get('/', async (req, res) => {
   const { from, to } = req.query;
 
+  // Validate inputs
   if (!from || !to) {
-    return res.status(400).json({ error: 'Both from and to station IDs are required.' });
+    return res.status(400).json({ 
+      error: 'Both from and to station IDs are required.',
+      example: '/api/shortest-path?from=station1&to=station2'
+    });
   }
 
   try {
-    const stations = await Station.find({});
+    // Get all stations with only necessary fields
+    const stations = await Station.find({}, '_id connections');
+    
+    // Build adjacency list
     const graph = {};
-
-    // Build adjacency list with distance and cost
-    stations.forEach((station) => {
-      graph[station._id.toString()] = station.connections.map((conn) => ({
-        node: conn.station.toString(),
+    stations.forEach(station => {
+      graph[station._id] = station.connections.map(conn => ({
+        station: conn.station,
         distance: conn.distance,
-        cost: conn.cost,
+        cost: conn.cost
       }));
     });
 
-    // Dijkstra’s algorithm
+    // Validate station IDs exist in graph
+    if (!graph[from] || !graph[to]) {
+      return res.status(404).json({ 
+        error: 'One or both station IDs not found',
+        availableStations: Object.keys(graph)
+      });
+    }
+
+    // Dijkstra's algorithm implementation
     const distances = {};
     const costs = {};
-    const prev = {};
-    const visited = new Set();
-    const queue = new Set();
+    const previous = {};
+    const unvisited = new Set(Object.keys(graph));
 
-    Object.keys(graph).forEach((key) => {
-      distances[key] = Infinity;
-      costs[key] = Infinity;
-      prev[key] = null;
-      queue.add(key);
+    // Initialize
+    Object.keys(graph).forEach(id => {
+      distances[id] = Infinity;
+      costs[id] = Infinity;
+      previous[id] = null;
     });
-
+    
     distances[from] = 0;
     costs[from] = 0;
 
-    while (queue.size > 0) {
-      let current = [...queue].reduce((minNode, node) =>
-        distances[node] < distances[minNode] ? node : minNode
-      );
+    while (unvisited.size > 0) {
+      // Find node with smallest distance
+      let current = null;
+      let smallestDistance = Infinity;
+      
+      for (const node of unvisited) {
+        if (distances[node] < smallestDistance) {
+          smallestDistance = distances[node];
+          current = node;
+        }
+      }
 
-      if (current === to) break;
-      queue.delete(current);
-      visited.add(current);
+      // Exit conditions
+      if (current === to || current === null) break;
+      unvisited.delete(current);
 
+      // Update neighbors
       for (const neighbor of graph[current]) {
-        if (visited.has(neighbor.node)) continue;
-
-        const newDist = distances[current] + neighbor.distance;
-        const newCost = costs[current] + neighbor.cost;
-
-        if (newDist < distances[neighbor.node]) {
-          distances[neighbor.node] = newDist;
-          costs[neighbor.node] = newCost;
-          prev[neighbor.node] = current;
+        const altDistance = distances[current] + neighbor.distance;
+        const altCost = costs[current] + neighbor.cost;
+        
+        if (altDistance < distances[neighbor.station]) {
+          distances[neighbor.station] = altDistance;
+          costs[neighbor.station] = altCost;
+          previous[neighbor.station] = current;
         }
       }
     }
 
-    // Build path
+    // Reconstruct path
     const path = [];
-    let curr = to;
-    while (curr) {
-      path.unshift(curr);
-      curr = prev[curr];
+    let current = to;
+    
+    while (current !== null) {
+      path.unshift(current);
+      current = previous[current];
     }
 
+    // Check if path exists
     if (distances[to] === Infinity) {
-      return res.status(404).json({ error: 'No path found between stations.' });
+      return res.status(404).json({ 
+        error: 'No path exists between these stations',
+        possibleReasons: [
+          'Stations are in disconnected networks',
+          'All connections are one-way in the wrong direction'
+        ]
+      });
     }
+
+    // Get detailed station information for path
+    const detailedPath = await Station.find(
+      { _id: { $in: path } },
+      'name coordinates'
+    ).sort({ _id: 1 });
 
     res.json({
-      from,
-      to,
-      path,
+      success: true,
+      path: detailedPath,
       totalDistance: distances[to],
-      totalCost: costs[to], // ✅ now included
+      totalCost: costs[to],
+      steps: path.length - 1
     });
+
   } catch (error) {
-    console.error(error);
-    res.status(500).json({ error: 'Server error calculating shortest path' });
+    console.error('Shortest path error:', error);
+    res.status(500).json({ 
+      error: 'Internal server error',
+      details: error.message
+    });
   }
 });
 
