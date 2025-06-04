@@ -11,36 +11,45 @@ dotenv.config();
 const app = express();
 const PORT = process.env.PORT || 5000;
 
-// CORS Configuration
+// ✅ Allowed frontend origins
 const allowedOrigins = [
   "https://indore-metro.vercel.app",
   "http://localhost:3000",
+  "http://localhost:5173"
 ];
 
-app.use(cors({ 
-  origin: allowedOrigins,
-  credentials: true  
-}));
+// ✅ Dynamic CORS handling
+const corsOptions = {
+  origin: function (origin, callback) {
+    if (!origin || allowedOrigins.includes(origin)) {
+      callback(null, true);
+    } else {
+      callback(new Error("Not allowed by CORS"));
+    }
+  },
+  credentials: true,
+};
 
+app.use(cors(corsOptions));
 app.use(express.json());
 
-// Root route
+// ✅ Root route
 app.get('/', (req, res) => {
   res.send('Indore Metro Backend is running 🚆');
 });
 
-// MongoDB Connection (updated without deprecated options)
-mongoose.set('strictQuery', true); // Optional: suppresses Mongoose deprecation warning
+// ✅ MongoDB setup
+mongoose.set('strictQuery', true);
 
 mongoose.connect(process.env.MONGO_URI)
   .then(() => console.log('✅ MongoDB connected successfully'))
   .catch((err) => console.error('❌ MongoDB connection error:', err));
 
-// API Routes
+// ✅ API Routes
 app.use('/api/stations', stationRoutes);
 app.use('/api/shortest-path', shortestPathRoutes);
 
-// Start Server
+// ✅ Start server
 app.listen(PORT, "0.0.0.0", () => {
   console.log(`🚀 Server is running on port ${PORT}`);
 });
