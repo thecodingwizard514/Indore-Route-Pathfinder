@@ -22,3 +22,10 @@ export async function connectStations({ firstStation, secondStation, distance, c
   });
   return res.data;
 }
+
+export async function getShortestPath(from, to) {
+  const res = await axios.get(`${BASE_URL}/shortest-path`, {
+    params: { from, to }
+  });
+  return res.data;
+}

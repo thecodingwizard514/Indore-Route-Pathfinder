@@ -1,6 +1,10 @@
 import React, { useEffect, useState } from "react";
-import { getStations, createStation, connectStations } from "./api";
-import axios from "axios";
+import {
+  getStations,
+  createStation,
+  connectStations,
+  getShortestPath,
+} from "./api";
 
 export default function App() {
   const [stations, setStations] = useState([]);
@@ -54,35 +58,35 @@ export default function App() {
     setLoading(false);
   }
 
-  async function handleFindShortestPath(e) {
-    e.preventDefault();
-    if (!fromStation || !toStation) return alert("Please select both stations");
+ async function handleFindShortestPath(e) {
+  e.preventDefault();
+  if (!fromStation || !toStation) return alert("Please select both stations");
 
-    setPathLoading(true);
-    try {
-      const res = await axios.get("http://localhost:5000/api/shortest-path", {
-        params: { from: fromStation, to: toStation },
-      });
-
-      const stationMap = {};
-      stations.forEach((s) => {
-        stationMap[s._id] = s.name;
-      });
-
-      const readablePath = res.data.path.map((id) => stationMap[id]);
-
-      setShortestPath({
-        ...res.data,
-        readablePath,
-      });
-    } catch (error) {
-      console.error(error);
-      alert("No path found or server error.");
-      setShortestPath(null);
-    } finally {
-      setPathLoading(false);
+  setPathLoading(true);
+  setShortestPath(null);
+  
+  try {
+    const res = await getShortestPath(fromStation, toStation);
+    
+    if (!res.success) {
+      throw new Error(res.error || 'No path found');
     }
+
+    // Use pathDetails from response
+    const readablePath = res.pathDetails.map(station => station.name);
+
+    setShortestPath({
+      ...res,
+      readablePath,
+      stationDetails: res.pathDetails // Store full station details
+    });
+  } catch (error) {
+    console.error('Path finding error:', error);
+    alert(error.message || 'Failed to find path');
+  } finally {
+    setPathLoading(false);
   }
+}
 
   const cardStyle = {
     background: "#ffffffdd",
@@ -109,24 +113,28 @@ export default function App() {
   };
 
   return (
-    <div style={{
-      maxWidth: 800,
-      margin: "auto",
-      fontFamily: "Segoe UI, sans-serif",
-      padding: 20,
-      background: "linear-gradient(to bottom right, #e0f7fa, #f1f8e9)",
-      minHeight: "100vh"
-    }}>
-      <h1 style={{
-        textAlign: "center",
-        fontSize: "2.5rem",
-        marginBottom: 40,
-        color: "#006064"
-      }}>
+    <div
+      style={{
+        maxWidth: 800,
+        margin: "auto",
+        fontFamily: "Segoe UI, sans-serif",
+        padding: 20,
+        background: "linear-gradient(to bottom right, #e0f7fa, #f1f8e9)",
+        minHeight: "100vh",
+      }}
+    >
+      <h1
+        style={{
+          textAlign: "center",
+          fontSize: "2.5rem",
+          marginBottom: 40,
+          color: "#006064",
+        }}
+      >
         Indore Metro Network
       </h1>
 
-      {/* 🧭 Shortest Path Section (moved to top) */}
+      {/* 🧭 Shortest Path Section */}
       <section style={cardStyle}>
         <h2 style={headingStyle}>🧭 Find Shortest Path</h2>
         <form onSubmit={handleFindShortestPath} style={{ display: "flex", flexWrap: "wrap", gap: 10 }}>

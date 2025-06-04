@@ -1,102 +1,96 @@
 import express from 'express';
-import cors from 'cors';
 import Station from '../models/Station.js';
+import mongoose from 'mongoose';
 
 const router = express.Router();
 
-// Enable CORS with configuration
-router.use(cors({
-  origin: process.env.FRONTEND_URL || '*',
-  methods: ['GET'],
-  allowedHeaders: ['Content-Type']
-}));
-
-// Debug endpoint to check database connectivity
-router.get('/debug', async (req, res) => {
-  try {
-    const stationCount = await Station.countDocuments();
-    res.json({
-      status: 'ok',
-      dbConnected: true,
-      stationCount,
-      environment: process.env.NODE_ENV || 'development'
-    });
-  } catch (error) {
-    res.status(500).json({
-      status: 'error',
-      dbConnected: false,
-      error: error.message
-    });
-  }
-});
-
-// GET /api/shortest-path?from=<id1>&to=<id2>
+/**
+ * @api {get} /api/shortest-path Find shortest path between stations
+ * @apiName GetShortestPath
+ * @apiGroup Path
+ *
+ * @apiParam {String} from Starting station ID
+ * @apiParam {String} to Destination station ID
+ *
+ * @apiSuccess {Boolean} success True if path found
+ * @apiSuccess {Array} path Array of station IDs in path
+ * @apiSuccess {Array} pathDetails Array of station details in path
+ * @apiSuccess {Number} totalDistance Total distance in meters
+ * @apiSuccess {Number} totalCost Total cost in rupees
+ * @apiSuccess {Number} steps Number of steps in path
+ */
 router.get('/', async (req, res) => {
-  console.log('Shortest path request received:', req.query);
-  
-  // Set timeout (10 seconds)
-  req.setTimeout(10000, () => {
-    console.warn(`Timeout occurred for request: ${req.originalUrl}`);
-    res.status(504).json({ 
-      error: 'Request timeout',
-      suggestion: 'The operation took too long. Try with closer stations.'
-    });
-  });
-
   const { from, to } = req.query;
+  console.log(`[ShortestPath] Request from ${from} to ${to}`);
 
   // Validate inputs
   if (!from || !to) {
-    console.error('Missing parameters:', { from, to });
-    return res.status(400).json({ 
-      error: 'Both from and to station IDs are required.',
-      example: '/api/shortest-path?from=station1&to=station2',
-      received: { from, to }
+    console.log('[ShortestPath] Missing parameters');
+    return res.status(400).json({
+      success: false,
+      error: 'Both from and to station IDs are required',
+      example: '/api/shortest-path?from=station1&to=station2'
     });
   }
 
   try {
-    console.log('Fetching stations from database...');
-    const stations = await Station.find({}, '_id name connections').lean();
-    console.log(`Found ${stations.length} stations`);
-
-    // Build adjacency list with additional validation
-    const graph = {};
-    const stationIds = new Set();
+    // Get all stations with populated connections
+    console.log('[ShortestPath] Fetching stations from DB');
+    const stations = await Station.find({})
+      .populate('connections.station', '_id name coordinates');
     
-    stations.forEach(station => {
-      stationIds.add(station._id.toString());
-      graph[station._id] = station.connections.map(conn => ({
-        station: conn.station,
-        distance: conn.distance || 1,  // Default distance if missing
-        cost: conn.cost || 1          // Default cost if missing
-      }));
-    });
-
-    // Validate station IDs exist in graph
-    if (!stationIds.has(from) || !stationIds.has(to)) {
-      const missing = [];
-      if (!stationIds.has(from)) missing.push(`from: ${from}`);
-      if (!stationIds.has(to)) missing.push(`to: ${to}`);
-      
-      console.error('Station not found:', { missing, available: Array.from(stationIds) });
-      return res.status(404).json({ 
-        error: 'Station not found',
-        missing,
-        availableStations: Array.from(stationIds).slice(0, 50), // Show first 50 to avoid huge response
-        suggestion: 'Check /api/stations for complete list'
+    if (!stations.length) {
+      console.log('[ShortestPath] No stations found in database');
+      return res.status(404).json({
+        success: false,
+        error: 'No stations found in database'
       });
     }
 
-    console.log(`Computing path from ${from} to ${to}...`);
-    // Dijkstra's algorithm implementation (optimized)
+    // Build graph and station map
+    console.log('[ShortestPath] Building graph structure');
+    const graph = {};
+    const stationMap = {};
+    
+    stations.forEach(station => {
+      const stationId = station._id.toString();
+      stationMap[stationId] = station;
+      stationMap[station._id] = station; // Store both string and ObjectId versions
+      
+      graph[stationId] = station.connections.map(conn => ({
+        stationId: conn.station._id.toString(), // Ensure string ID
+        distance: conn.distance,
+        cost: conn.cost
+      }));
+    });
+
+    // Validate station IDs
+    if (!stationMap[from] || !stationMap[to]) {
+      console.log('[ShortestPath] Invalid station IDs', {
+        fromExists: !!stationMap[from],
+        toExists: !!stationMap[to]
+      });
+      
+      return res.status(404).json({
+        success: false,
+        error: 'One or both station IDs not found',
+        availableStations: stations.slice(0, 10).map(s => ({
+          id: s._id,
+          name: s.name
+        }))
+      });
+    }
+
+    // Dijkstra's algorithm implementation
+    console.log('[ShortestPath] Calculating shortest path');
     const distances = {};
     const costs = {};
     const previous = {};
-    const unvisited = new Set(stationIds);
+    const visited = new Set();
+    const unvisited = new Set(Object.keys(graph));
 
     // Initialize
-    stationIds.forEach(id => {
+    Object.keys(graph).forEach(id => {
       distances[id] = Infinity;
       costs[id] = Infinity;
       previous[id] = null;
@@ -106,7 +100,7 @@ router.get('/', async (req, res) => {
     costs[from] = 0;
 
     while (unvisited.size > 0) {
-      // Find node with smallest distance (optimized)
+      // Find node with smallest distance
       let current = null;
       let smallestDistance = Infinity;
       
@@ -118,81 +112,78 @@ router.get('/', async (req, res) => {
       }
 
       // Exit conditions
-      if (current === to || current === null) {
-        console.log(`Breaking at current=${current}`);
-        break;
-      }
+      if (current === to || current === null) break;
       unvisited.delete(current);
+      visited.add(current);
 
-      // Update neighbors with null checks
-      const neighbors = graph[current] || [];
-      for (const neighbor of neighbors) {
-        if (!unvisited.has(neighbor.station)) continue;
+      // Update neighbors
+      for (const neighbor of graph[current]) {
+        if (visited.has(neighbor.stationId)) continue;
         
-        const altDistance = distances[current] + (neighbor.distance || 1);
-        const altCost = costs[current] + (neighbor.cost || 1);
+        const altDistance = distances[current] + neighbor.distance;
+        const altCost = costs[current] + neighbor.cost;
         
-        if (altDistance < distances[neighbor.station]) {
-          distances[neighbor.station] = altDistance;
-          costs[neighbor.station] = altCost;
-          previous[neighbor.station] = current;
+        if (altDistance < distances[neighbor.stationId]) {
+          distances[neighbor.stationId] = altDistance;
+          costs[neighbor.stationId] = altCost;
+          previous[neighbor.stationId] = current;
         }
       }
     }
 
     // Reconstruct path
-    const path = [];
-    let current = to;
+    const pathIds = [];
+    let current = to.toString(); // Ensure string ID
     
     while (current !== null) {
-      path.unshift(current);
+      pathIds.unshift(current);
       current = previous[current];
     }
 
     // Check if path exists
     if (distances[to] === Infinity) {
-      console.error('No path exists between:', { from, to });
-      return res.status(404).json({ 
+      console.log('[ShortestPath] No path exists between stations');
+      return res.status(404).json({
+        success: false,
         error: 'No path exists between these stations',
         possibleReasons: [
           'Stations are in disconnected networks',
           'All connections are one-way in the wrong direction'
-        ],
-        suggestion: 'Try different station combinations'
+        ]
       });
     }
 
-    console.log(`Path found with ${path.length} steps`);
-    // Get detailed station information for path (optimized)
-    const detailedPath = stations.filter(station => 
-      path.includes(station._id.toString())
-    ).map(station => ({
-      _id: station._id,
-      name: station.name,
-      coordinates: station.coordinates
-    }));
+    // Build detailed path response
+    const pathDetails = pathIds.map(id => {
+      const station = stationMap[id];
+      return {
+        id: station._id,
+        name: station.name,
+        coordinates: station.coordinates
+      };
+    });
 
-    // Sort by path order
-    detailedPath.sort((a, b) => 
-      path.indexOf(a._id.toString()) - path.indexOf(b._id.toString())
-    );
+    console.log('[ShortestPath] Path found:', {
+      steps: pathIds.length - 1,
+      distance: distances[to],
+      cost: costs[to]
+    });
 
     res.json({
       success: true,
-      path: detailedPath,
+      path: pathIds,
+      pathDetails,
       totalDistance: distances[to],
       totalCost: costs[to],
-      steps: path.length - 1,
-      computationTime: `${process.uptime().toFixed(2)}s`
+      steps: pathIds.length - 1
     });
 
   } catch (error) {
-    console.error('Full error stack:', error.stack);
-    res.status(500).json({ 
+    console.error('[ShortestPath] Error:', error);
+    res.status(500).json({
+      success: false,
       error: 'Internal server error',
-      details: process.env.NODE_ENV === 'production' ? 'See server logs' : error.message,
-      stack: process.env.NODE_ENV !== 'production' ? error.stack : undefined,
-      suggestion: 'Try again later or contact support'
+      details: process.env.NODE_ENV === 'development' ? error.message : undefined
     });
   }
 });
