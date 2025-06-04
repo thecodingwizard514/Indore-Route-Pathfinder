@@ -6,33 +6,51 @@ const router = express.Router();
 // GET /api/stations - fetch all stations with connected station names
 router.get("/", async (req, res) => {
   try {
-    const stations = await Station.find().populate("connections.station", "name");
+    const stations = await Station.find().populate("connections.station", "name _id");
     res.json(stations);
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    console.error("GET /api/stations error:", err);
+    res.status(500).json({ 
+      error: "Failed to fetch stations",
+      details: process.env.NODE_ENV === 'development' ? err.message : undefined
+    });
   }
 });
 
 // POST /api/stations - create a new station
 router.post("/", async (req, res) => {
-  const { name } = req.body;
+  const { name, coordinates } = req.body;
 
   if (!name) {
-    return res.status(400).json({ error: "Station name is required" });
+    return res.status(400).json({ 
+      error: "Station name is required",
+      example: { name: "Station A", coordinates: { lat: 22.7196, lng: 75.8577 } }
+    });
   }
 
   try {
     const existingStation = await Station.findOne({ name });
     if (existingStation) {
-      return res.status(400).json({ error: "Station already exists" });
+      return res.status(400).json({ 
+        error: "Station already exists",
+        existingId: existingStation._id
+      });
     }
 
-    const station = new Station({ name, connections: [] });
+    const station = new Station({ 
+      name, 
+      coordinates: coordinates || null,
+      connections: [] 
+    });
     await station.save();
 
     res.status(201).json(station);
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    console.error("POST /api/stations error:", err);
+    res.status(500).json({ 
+      error: "Failed to create station",
+      details: process.env.NODE_ENV === 'development' ? err.message : undefined
+    });
   }
 });
 
@@ -40,40 +58,80 @@ router.post("/", async (req, res) => {
 router.post("/connect", async (req, res) => {
   const { firstStation, secondStation, distance, cost } = req.body;
 
-  if (!firstStation || !secondStation || !distance || !cost) {
-    return res.status(400).json({ error: "All fields are required" });
+  // Validate inputs
+  if (!firstStation || !secondStation) {
+    return res.status(400).json({ 
+      error: "Both station IDs are required",
+      example: {
+        firstStation: "station_id_1",
+        secondStation: "station_id_2",
+        distance: 500, // in meters
+        cost: 20 // in rupees
+      }
+    });
+  }
+
+  if (!distance || !cost || distance <= 0 || cost <= 0) {
+    return res.status(400).json({ 
+      error: "Distance and cost must be positive numbers",
+      received: { distance, cost }
+    });
   }
 
   try {
-    const station1 = await Station.findById(firstStation);
-    const station2 = await Station.findById(secondStation);
+    // Validate stations exist
+    const [station1, station2] = await Promise.all([
+      Station.findById(firstStation),
+      Station.findById(secondStation)
+    ]);
 
     if (!station1 || !station2) {
-      return res.status(404).json({ error: "One or both stations not found" });
+      const missing = [];
+      if (!station1) missing.push(`firstStation: ${firstStation}`);
+      if (!station2) missing.push(`secondStation: ${secondStation}`);
+      return res.status(404).json({ 
+        error: "Station(s) not found",
+        missing
+      });
     }
 
-    // Avoid duplicate connections
-    const alreadyConnected1 = station1.connections.some(
-      (conn) => conn.station.toString() === secondStation
+    // Check for existing connections
+    const connectionExists = station1.connections.some(
+      conn => conn.station.toString() === secondStation
     );
-    const alreadyConnected2 = station2.connections.some(
-      (conn) => conn.station.toString() === firstStation
-    );
 
-    if (!alreadyConnected1) {
-      station1.connections.push({ station: secondStation, distance, cost });
+    if (connectionExists) {
+      return res.status(400).json({ 
+        error: "Stations already connected",
+        suggestion: "Use PUT /api/stations/connect to update connection details"
+      });
     }
 
-    if (!alreadyConnected2) {
-      station2.connections.push({ station: firstStation, distance, cost });
-    }
+    // Create bidirectional connection
+    await Promise.all([
+      Station.findByIdAndUpdate(firstStation, {
+        $push: {
+          connections: { station: secondStation, distance, cost }
+        }
+      }),
+      Station.findByIdAndUpdate(secondStation, {
+        $push: {
+          connections: { station: firstStation, distance, cost }
+        }
+      })
+    ]);
 
-    await station1.save();
-    await station2.save();
-
-    res.json({ message: "Stations connected successfully" });
+    res.json({ 
+      success: true,
+      message: "Stations connected successfully",
+      connection: { firstStation, secondStation, distance, cost }
+    });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    console.error("POST /api/stations/connect error:", err);
+    res.status(500).json({ 
+      error: "Failed to connect stations",
+      details: process.env.NODE_ENV === 'development' ? err.message : undefined
+    });
   }
 });
 
