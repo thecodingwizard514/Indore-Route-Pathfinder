@@ -1,7 +1,7 @@
 // src/api.js
 import axios from "axios";
 
-const BASE_URL = "http://localhost:5000/api"; // Note the /api here
+const BASE_URL = "https://indore-metro.onrender.com/api";
 
 export async function getStations() {
   const res = await axios.get(`${BASE_URL}/stations`);
