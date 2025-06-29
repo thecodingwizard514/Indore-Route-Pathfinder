@@ -1,4 +1,4 @@
-# 🚦 Indore Route Planner
+# 🚦 Indore Route Pathfinder
 
 <div align="center">
 
