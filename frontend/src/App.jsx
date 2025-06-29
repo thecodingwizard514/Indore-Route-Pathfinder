@@ -7,86 +7,85 @@ import {
 } from "./api";
 
 export default function App() {
-  const [stations, setStations] = useState([]);
-  const [newStationName, setNewStationName] = useState("");
-  const [firstStation, setFirstStation] = useState("");
-  const [secondStation, setSecondStation] = useState("");
+  const [locations, setLocations] = useState([]);
+  const [newLocationName, setNewLocationName] = useState("");
+  const [firstLocation, setFirstLocation] = useState("");
+  const [secondLocation, setSecondLocation] = useState("");
   const [distance, setDistance] = useState("");
   const [cost, setCost] = useState("");
   const [loading, setLoading] = useState(false);
-  const [fromStation, setFromStation] = useState("");
-  const [toStation, setToStation] = useState("");
+  const [fromLocation, setFromLocation] = useState("");
+  const [toLocation, setToLocation] = useState("");
   const [shortestPath, setShortestPath] = useState(null);
   const [pathLoading, setPathLoading] = useState(false);
 
   useEffect(() => {
-    fetchStations();
+    fetchLocations();
   }, []);
 
-  async function fetchStations() {
+  async function fetchLocations() {
     const data = await getStations();
-    setStations(data);
+    setLocations(data);
   }
 
-  async function handleCreateStation(e) {
+  async function handleCreateLocation(e) {
     e.preventDefault();
-    if (!newStationName) return alert("Please enter station name");
+    if (!newLocationName) return alert("Please enter location name");
     setLoading(true);
-    await createStation(newStationName);
-    setNewStationName("");
-    await fetchStations();
+    await createStation(newLocationName);
+    setNewLocationName("");
+    await fetchLocations();
     setLoading(false);
   }
 
-  async function handleConnectStations(e) {
+  async function handleConnectLocations(e) {
     e.preventDefault();
-    if (!firstStation || !secondStation || !distance || !cost) {
-      return alert("Please fill all fields to connect stations");
+    if (!firstLocation || !secondLocation || !distance || !cost) {
+      return alert("Please fill all fields to connect locations");
     }
     setLoading(true);
     await connectStations({
-      firstStation,
-      secondStation,
+      firstStation: firstLocation,
+      secondStation: secondLocation,
       distance: Number(distance),
       cost: Number(cost),
     });
-    setFirstStation("");
-    setSecondStation("");
+    setFirstLocation("");
+    setSecondLocation("");
     setDistance("");
     setCost("");
-    await fetchStations();
+    await fetchLocations();
     setLoading(false);
   }
 
- async function handleFindShortestPath(e) {
-  e.preventDefault();
-  if (!fromStation || !toStation) return alert("Please select both stations");
+  async function handleFindShortestPath(e) {
+    e.preventDefault();
+    if (!fromLocation || !toLocation) return alert("Please select both locations");
 
-  setPathLoading(true);
-  setShortestPath(null);
-  
-  try {
-    const res = await getShortestPath(fromStation, toStation);
-    
-    if (!res.success) {
-      throw new Error(res.error || 'No path found');
+    setPathLoading(true);
+    setShortestPath(null);
+
+    try {
+      const res = await getShortestPath(fromLocation, toLocation);
+
+      if (!res.success) {
+        throw new Error(res.error || 'No path found');
+      }
+
+      const readablePath = res.pathDetails.map(loc => loc.name);
+
+      setShortestPath({
+        ...res,
+        readablePath,
+        locationDetails: res.pathDetails
+      });
+    } catch (error) {
+      console.error('Path finding error:', error);
+      alert(error.message || 'Failed to find path');
+    } finally {
+      setPathLoading(false);
     }
-
-    // Use pathDetails from response
-    const readablePath = res.pathDetails.map(station => station.name);
-
-    setShortestPath({
-      ...res,
-      readablePath,
-      stationDetails: res.pathDetails // Store full station details
-    });
-  } catch (error) {
-    console.error('Path finding error:', error);
-    alert(error.message || 'Failed to find path');
-  } finally {
-    setPathLoading(false);
   }
-}
 
   const cardStyle = {
     background: "#ffffffdd",
@@ -131,32 +130,32 @@ export default function App() {
           color: "#006064",
         }}
       >
-        Indore Metro Network
+        Indore Route Pathfinder
       </h1>
 
       {/* 🧭 Shortest Path Section */}
       <section style={cardStyle}>
-        <h2 style={headingStyle}>🧭 Find Shortest Path</h2>
+        <h2 style={headingStyle}>🧭 Find Best Route</h2>
         <form onSubmit={handleFindShortestPath} style={{ display: "flex", flexWrap: "wrap", gap: 10 }}>
           <select
-            value={fromStation}
-            onChange={(e) => setFromStation(e.target.value)}
+            value={fromLocation}
+            onChange={(e) => setFromLocation(e.target.value)}
             style={{ flex: 1, padding: 10, borderRadius: 6 }}
           >
-            <option value="">From Station</option>
-            {stations.map((s) => (
-              <option key={s._id} value={s._id}>{s.name}</option>
+            <option value="">From Location</option>
+            {locations.map((loc) => (
+              <option key={loc._id} value={loc._id}>{loc.name}</option>
             ))}
           </select>
 
           <select
-            value={toStation}
-            onChange={(e) => setToStation(e.target.value)}
+            value={toLocation}
+            onChange={(e) => setToLocation(e.target.value)}
             style={{ flex: 1, padding: 10, borderRadius: 6 }}
           >
-            <option value="">To Station</option>
-            {stations.map((s) => (
-              <option key={s._id} value={s._id}>{s.name}</option>
+            <option value="">To Location</option>
+            {locations.map((loc) => (
+              <option key={loc._id} value={loc._id}>{loc.name}</option>
             ))}
           </select>
 
@@ -165,23 +164,23 @@ export default function App() {
 
         {shortestPath && (
           <div style={{ marginTop: 20 }}>
-            <h3 style={{ color: "#004d40" }}>✅ Shortest Path</h3>
-            <p><strong>Stations:</strong> {shortestPath.readablePath.join(" → ")}</p>
+            <h3 style={{ color: "#004d40" }}>✅ Best Route</h3>
+            <p><strong>Path:</strong> {shortestPath.readablePath.join(" → ")}</p>
             <p><strong>Total Distance:</strong> {shortestPath.totalDistance} km</p>
             <p><strong>Total Cost:</strong> ₹{shortestPath.totalCost}</p>
           </div>
         )}
       </section>
 
-      {/* 🚉 Create Station */}
+      {/* 📍 Add Location */}
       <section style={cardStyle}>
-        <h2 style={headingStyle}>🚉 Create Station</h2>
-        <form onSubmit={handleCreateStation} style={{ display: "flex", gap: "10px" }}>
+        <h2 style={headingStyle}>📍 Add Location</h2>
+        <form onSubmit={handleCreateLocation} style={{ display: "flex", gap: "10px" }}>
           <input
             type="text"
-            placeholder="Station name"
-            value={newStationName}
-            onChange={(e) => setNewStationName(e.target.value)}
+            placeholder="Location name"
+            value={newLocationName}
+            onChange={(e) => setNewLocationName(e.target.value)}
             disabled={loading}
             style={{ flex: 1, padding: 10, borderRadius: 6, border: "1px solid #ccc" }}
           />
@@ -189,36 +188,36 @@ export default function App() {
         </form>
       </section>
 
-      {/* 🔗 Connect Stations */}
+      {/* 🔗 Connect Locations */}
       <section style={cardStyle}>
-        <h2 style={headingStyle}>🔗 Connect Stations</h2>
-        <form onSubmit={handleConnectStations} style={{ display: "grid", gap: 10 }}>
+        <h2 style={headingStyle}>🔗 Connect Locations</h2>
+        <form onSubmit={handleConnectLocations} style={{ display: "grid", gap: 10 }}>
           <div>
-            <label>Select first station: </label>
+            <label>Select first location: </label>
             <select
-              value={firstStation}
-              onChange={(e) => setFirstStation(e.target.value)}
+              value={firstLocation}
+              onChange={(e) => setFirstLocation(e.target.value)}
               disabled={loading}
               style={{ padding: 8, borderRadius: 6, width: "100%" }}
             >
               <option value="">-- Select --</option>
-              {stations.map((s) => (
-                <option key={s._id} value={s._id}>{s.name}</option>
+              {locations.map((loc) => (
+                <option key={loc._id} value={loc._id}>{loc.name}</option>
               ))}
             </select>
           </div>
 
           <div>
-            <label>Select second station: </label>
+            <label>Select second location: </label>
             <select
-              value={secondStation}
-              onChange={(e) => setSecondStation(e.target.value)}
+              value={secondLocation}
+              onChange={(e) => setSecondLocation(e.target.value)}
               disabled={loading}
               style={{ padding: 8, borderRadius: 6, width: "100%" }}
             >
               <option value="">-- Select --</option>
-              {stations.map((s) => (
-                <option key={s._id} value={s._id}>{s.name}</option>
+              {locations.map((loc) => (
+                <option key={loc._id} value={loc._id}>{loc.name}</option>
               ))}
             </select>
           </div>
@@ -241,19 +240,19 @@ export default function App() {
         </form>
       </section>
 
-      {/* 📋 Station List */}
+      {/* 📋 Location List */}
       <section style={cardStyle}>
-        <h2 style={headingStyle}>📋 Stations</h2>
-        {stations.length === 0 ? (
-          <p>No stations created yet.</p>
+        <h2 style={headingStyle}>📋 Locations</h2>
+        {locations.length === 0 ? (
+          <p>No locations added yet.</p>
         ) : (
           <ul style={{ listStyle: "none", padding: 0 }}>
-            {stations.map((station) => (
-              <li key={station._id} style={{ marginBottom: 20 }}>
-                <strong style={{ color: "#004d40" }}>{station.name}</strong>
-                {station.connections?.length > 0 ? (
+            {locations.map((location) => (
+              <li key={location._id} style={{ marginBottom: 20 }}>
+                <strong style={{ color: "#004d40" }}>{location.name}</strong>
+                {location.connections?.length > 0 ? (
                   <ul>
-                    {station.connections.map((conn, idx) => (
+                    {location.connections.map((conn, idx) => (
                       <li key={idx}>
                         ➝ <strong>{conn.station?.name || "Unknown"}</strong> | {conn.distance} km | ₹{conn.cost}
                       </li>
